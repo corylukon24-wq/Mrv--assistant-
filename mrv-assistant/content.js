@@ -38,7 +38,8 @@
           }
           if (url && String(url).includes('esearch') && auth) {
             window._mrvToken = auth;
-            window.postMessage({ __mrv: true, type: 'token', token: auth }, '*');
+            window._mrvSearchUrl = String(url);
+            window.postMessage({ __mrv: true, type: 'token', token: auth, searchUrl: String(url) }, '*');
           }
         } catch (_) {}
         return origFetch.apply(this, args);
@@ -53,18 +54,24 @@
   } catch (_) { /* page CSP blocked us — API path will degrade to DOM fallback */ }
 
   let capturedToken = null;
+  let capturedSearchUrl = null;
   window.addEventListener('message', (ev) => {
     if (ev.source !== window) return;
     const d = ev.data;
     if (d && d.__mrv && d.type === 'token' && typeof d.token === 'string') {
       capturedToken = d.token;
+      if (typeof d.searchUrl === 'string') capturedSearchUrl = d.searchUrl;
     }
   });
 
   // ──────────────────────────────────────────────────────────────────
   // 2. CONSTANTS
   // ──────────────────────────────────────────────────────────────────
-  const SEARCH_API = 'https://ves-viewer-2-prod-endpoint.ves-prod.maxfedsolutions.com/gateway/proxy/esearch/api/search';
+  // Fallback URL — only used if we never observed Maximus calling the real
+  // esearch endpoint. The real URL is captured live from the page's own
+  // fetch() invocations (PRD Stage 1) and is preferred. The PRD truncated
+  // the path to "/gateway/proxy/esearch/ap…" so we cannot rely on guessing.
+  const SEARCH_API_FALLBACK = 'https://ves-viewer-2-prod-endpoint.ves-prod.maxfedsolutions.com/gateway/proxy/esearch/api/search';
 
   const SWATCH_HEX = {
     yellow:  '#fdfdb8',
@@ -292,7 +299,7 @@
   // ──────────────────────────────────────────────────────────────────
   // 6. SEARCH API (with DOM fallback flagging)
   // ──────────────────────────────────────────────────────────────────
-  async function fetchApiHitsForTerm(term, token) {
+  async function fetchApiHitsForTerm(term, token, url) {
     const body = {
       query_stmt: `*${term}*`,
       query_type: 'terms',
@@ -301,7 +308,7 @@
       fuzzy: 0,
       allow_stemming: false
     };
-    const res = await fetch(SEARCH_API, {
+    const res = await fetch(url || SEARCH_API_FALLBACK, {
       method: 'POST',
       headers: {
         'Authorization': token,
@@ -509,7 +516,7 @@
       if (capturedToken) {
         for (const term of report.keywords) {
           try {
-            const apiPages = await fetchApiHitsForTerm(term, capturedToken);
+            const apiPages = await fetchApiHitsForTerm(term, capturedToken, capturedSearchUrl);
             const { pages: allPages } = scanPages();
             const byNum = new Map(allPages.map(p => [p.pageNum, p]));
             apiPages.forEach(pn => {

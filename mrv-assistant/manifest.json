@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "MRV Assistant",
+  "version": "4.0.0",
+  "description": "Auto-places color-coded sticky notes on Maximus MRV search hits. Search your keywords in Maximus, click Run, come back to flagged pages.",
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://viewer.ves-prod.maxfedsolutions.com/*",
+    "https://ves-viewer-2-prod-endpoint.ves-prod.maxfedsolutions.com/*",
+    "https://*.maxfedsolutions.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "MRV Assistant",
+    "default_icon": {
+      "48": "icon.png"
+    }
+  },
+  "icons": {
+    "48": "icon.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://viewer.ves-prod.maxfedsolutions.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -66,13 +66,19 @@ async function sendToContent(msg) {
 // ──────────────────────────────────────────────────────────────────
 async function loadSettings() {
   return new Promise(resolve => {
-    chrome.storage.local.get(['mrvDbq', 'mrvMinHits', 'mrvSpeed', 'mrvSkipExisting'], (s) => {
-      if (s.mrvDbq) $('dbq').value = s.mrvDbq;
-      if (s.mrvMinHits) $('minHits').value = String(s.mrvMinHits);
-      if (s.mrvSpeed) $('speed').value = s.mrvSpeed;
-      if (typeof s.mrvSkipExisting === 'boolean') $('skipExisting').checked = s.mrvSkipExisting;
-      resolve();
-    });
+    chrome.storage.local.get(
+      ['mrvDbq', 'mrvMinHits', 'mrvSpeed', 'mrvSkipExisting', 'mrvTagMode', 'mrvCustomCategories'],
+      (s) => {
+        if (s.mrvDbq) $('dbq').value = s.mrvDbq;
+        if (s.mrvMinHits) $('minHits').value = String(s.mrvMinHits);
+        if (s.mrvSpeed) $('speed').value = s.mrvSpeed;
+        if (s.mrvTagMode) $('tagMode').value = s.mrvTagMode;
+        if (typeof s.mrvSkipExisting === 'boolean') $('skipExisting').checked = s.mrvSkipExisting;
+        if (s.mrvCustomCategories) $('customCategories').value = s.mrvCustomCategories;
+        updateCustomVisibility();
+        resolve();
+      }
+    );
   });
 }
 
@@ -81,8 +87,15 @@ async function saveSettings() {
     mrvDbq: $('dbq').value,
     mrvMinHits: parseInt($('minHits').value, 10),
     mrvSpeed: $('speed').value,
-    mrvSkipExisting: $('skipExisting').checked
+    mrvTagMode: $('tagMode').value,
+    mrvSkipExisting: $('skipExisting').checked,
+    mrvCustomCategories: $('customCategories').value
   });
+}
+
+function updateCustomVisibility() {
+  const isCustom = $('dbq').value === 'custom';
+  $('customRow').style.display = isCustom ? 'flex' : 'none';
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -210,6 +223,7 @@ function renderDone(state) {
   $('stat-high').textContent = r.highPri || 0;
   $('stat-low').textContent = r.lowPri || 0;
   $('stat-skipped').textContent = r.skipped || 0;
+  $('stat-non-medical').textContent = r.skippedNonMedical || 0;
   $('stat-failed').textContent = r.failed || 0;
   $('stat-elapsed').textContent = fmtElapsed(state.mrvElapsedMs);
 
@@ -249,10 +263,20 @@ function renderError(state) {
 // ──────────────────────────────────────────────────────────────────
 async function onRunClicked() {
   await saveSettings();
+  const dbq = $('dbq').value;
+  if (dbq === 'custom' && !$('customCategories').value.trim()) {
+    await chrome.storage.local.set({
+      mrvState: 'error',
+      mrvErrorMsg: 'Custom DBQ needs at least one category keyword. Add some, then run again.'
+    });
+    return;
+  }
   const opts = {
-    dbq: $('dbq').value,
+    dbq,
+    customCategories: $('customCategories').value,
     minHits: parseInt($('minHits').value, 10),
     speed: $('speed').value,
+    tagMode: $('tagMode').value,
     skipExisting: $('skipExisting').checked,
     confirmed: false
   };
@@ -269,8 +293,10 @@ async function onRunClicked() {
 async function onConfirmYes() {
   const opts = {
     dbq: $('dbq').value || (await getStoredVal('mrvDbq', 'general')),
+    customCategories: $('customCategories').value || (await getStoredVal('mrvCustomCategories', '')),
     minHits: parseInt($('minHits').value || (await getStoredVal('mrvMinHits', 1)), 10),
     speed: $('speed').value || (await getStoredVal('mrvSpeed', 'normal')),
+    tagMode: $('tagMode').value || (await getStoredVal('mrvTagMode', 'strict')),
     skipExisting: $('skipExisting').checked,
     confirmed: true
   };
@@ -305,12 +331,13 @@ async function onAgainClicked() {
 async function onResumeClicked() {
   // Re-run with current settings; the content script's skip-existing logic
   // will skip pages already noted from the previous partial run.
-  const skip = $('skipExisting');
   await chrome.storage.local.set({ mrvSkipExisting: true });
   const opts = {
     dbq: await getStoredVal('mrvDbq', 'general'),
+    customCategories: await getStoredVal('mrvCustomCategories', ''),
     minHits: parseInt(await getStoredVal('mrvMinHits', 1), 10),
     speed: await getStoredVal('mrvSpeed', 'normal'),
+    tagMode: await getStoredVal('mrvTagMode', 'strict'),
     skipExisting: true,
     confirmed: true
   };
@@ -347,9 +374,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('freshBtn').addEventListener('click', onFreshClicked);
   $('resetBtn').addEventListener('click', onResetClicked);
 
-  ['dbq', 'minHits', 'speed', 'skipExisting'].forEach(id => {
-    $(id).addEventListener('change', saveSettings);
+  ['dbq', 'minHits', 'speed', 'skipExisting', 'tagMode'].forEach(id => {
+    $(id).addEventListener('change', () => {
+      saveSettings();
+      if (id === 'dbq') updateCustomVisibility();
+    });
   });
+  $('customCategories').addEventListener('input', saveSettings);
 
   refresh();
 });

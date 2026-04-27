@@ -25,6 +25,12 @@
   "content_scripts": [
     {
       "matches": ["https://viewer.ves-prod.maxfedsolutions.com/*"],
+      "js": ["page-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://viewer.ves-prod.maxfedsolutions.com/*"],
       "js": ["content.js"],
       "run_at": "document_start"
     }

@@ -199,13 +199,20 @@
         <option value="spine">Spine / Back</option>
         <option value="shoulder">Shoulder / Arm</option>
         <option value="knee">Knee / Leg</option>
+        <option value="headache">Headache</option>
         <option value="mental">Mental Health</option>
         <option value="hypertension">Hypertension</option>
         <option value="diabetes">Diabetes</option>
         <option value="hearing">Hearing Loss</option>
         <option value="respiratory">Respiratory</option>
         <option value="general">General</option>
+        <option value="custom">Custom…</option>
       </select>
+    </div>
+    <div class="row" id="customRow" style="display:none">
+      <label for="customCategories" style="align-self:flex-start;padding-top:4px">Custom keywords</label>
+      <textarea id="customCategories" rows="2" placeholder="comma-separated, e.g.&#10;head, mri, neuro, migraine"
+        style="width:170px;font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-family:inherit;resize:vertical"></textarea>
     </div>
     <div class="row">
       <label for="minHits">Min hits per page</label>
@@ -225,9 +232,21 @@
         <option value="fast">Fast</option>
       </select>
     </div>
+    <div class="row">
+      <label for="tagMode">Tag mode</label>
+      <select id="tagMode">
+        <option value="strict" selected>Strict (recommended)</option>
+        <option value="relaxed">Relaxed (every hit)</option>
+      </select>
+    </div>
     <div class="check-row">
       <input type="checkbox" id="skipExisting" checked>
       <label for="skipExisting">Skip pages with notes</label>
+    </div>
+    <div class="footnote" style="text-align:left;margin-bottom:8px;line-height:1.4">
+      <strong>Strict</strong>: only tags imaging studies, procedures,
+      medications, and surgery notes that match your keywords.
+      <strong>Relaxed</strong>: tags every page with a hit.
     </div>
     <button id="runBtn">Run Highlight Extraction</button>
   </div>
@@ -258,6 +277,7 @@
       <div class="stat"><span><span class="pill green">★</span> High priority</span><span id="stat-high">0</span></div>
       <div class="stat"><span><span class="pill orange">⚠</span> Review</span><span id="stat-low">0</span></div>
       <div class="stat"><span>Skipped (already noted)</span><span id="stat-skipped">0</span></div>
+      <div class="stat"><span>Skipped (non-medical)</span><span id="stat-non-medical">0</span></div>
       <div class="stat"><span>Failed</span><span id="stat-failed">0</span></div>
       <div class="stat"><span>Time elapsed</span><span id="stat-elapsed">—</span></div>
     </div>

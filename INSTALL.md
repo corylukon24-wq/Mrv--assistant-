@@ -19,9 +19,15 @@ here ever disagree with the PRD, the PRD wins.
    so the cyan highlights appear. (The extension cannot type these for you.)
 3. Click the MRV Assistant icon in the Chrome toolbar.
 4. Select the **DBQ type** for this evaluation.
-5. Click **Run Highlight Extraction**.
-6. Wait for it to finish (watch the progress bar).
-7. Open the Sticky Notes panel in Maximus to jump to flagged pages.
+   - If your DBQ isn't in the list, choose **Custom…** and type comma-separated
+     keywords describing the medical area, e.g. `head, mri, neurology, migraine`.
+5. **Tag mode** is set to *Strict* by default. Strict means the extension only
+   places notes on pages that look like imaging studies, procedures,
+   medications, or surgery records. If you ever want to tag every page that
+   has a hit (PRD original behaviour), switch to *Relaxed*.
+6. Click **Run Highlight Extraction**.
+7. Wait for it to finish (watch the progress bar).
+8. Open the Sticky Notes panel in Maximus to jump to flagged pages.
 
 ## If notes land on wrong pages
 

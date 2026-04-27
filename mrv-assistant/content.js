@@ -10,49 +10,12 @@
   'use strict';
 
   // ──────────────────────────────────────────────────────────────────
-  // 1. PAGE-WORLD FETCH HOOK (token capture)
+  // 1. PAGE-WORLD HOOK BRIDGE
   // ──────────────────────────────────────────────────────────────────
-  // Content scripts run in an isolated world; their window.fetch is not
-  // the page's window.fetch. We inject a tiny script into the page world
-  // that wraps fetch and posts the captured Authorization header back to
-  // us via window.postMessage.
-  const hookSrc = `
-    (() => {
-      const origFetch = window.fetch;
-      window.fetch = async function(...args) {
-        try {
-          const url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
-          let auth = null;
-          const init = args[1];
-          if (init && init.headers) {
-            const h = init.headers;
-            if (h instanceof Headers) auth = h.get('Authorization') || h.get('authorization');
-            else if (Array.isArray(h)) {
-              const f = h.find(p => String(p[0]).toLowerCase() === 'authorization');
-              if (f) auth = f[1];
-            } else {
-              auth = h.Authorization || h.authorization || null;
-            }
-          } else if (args[0] instanceof Request) {
-            auth = args[0].headers.get('Authorization') || args[0].headers.get('authorization');
-          }
-          if (url && String(url).includes('esearch') && auth) {
-            window._mrvToken = auth;
-            window._mrvSearchUrl = String(url);
-            window.postMessage({ __mrv: true, type: 'token', token: auth, searchUrl: String(url) }, '*');
-          }
-        } catch (_) {}
-        return origFetch.apply(this, args);
-      };
-    })();
-  `;
-  try {
-    const s = document.createElement('script');
-    s.textContent = hookSrc;
-    (document.documentElement || document.head || document.body).appendChild(s);
-    s.remove();
-  } catch (_) { /* page CSP blocked us — API path will degrade to DOM fallback */ }
-
+  // The actual fetch() wrapper lives in page-hook.js, which is declared
+  // in manifest.json as a MAIN-world content_script (so CSP cannot
+  // block it). It posts the captured JWT + live esearch URL via
+  // window.postMessage; we listen here.
   let capturedToken = null;
   let capturedSearchUrl = null;
   window.addEventListener('message', (ev) => {
@@ -82,18 +45,46 @@
     hotpink: '#ff2789'
   };
 
+  // DBQ-specific high-priority categories. Page is "high priority" (yellow)
+  // if its category text contains any of these substrings.
   const DBQ_CATEGORIES = {
-    hip:         ['orthopedic', 'hip', 'thigh', 'surgery', 'radiology', 'mri', 'xray', 'ct', 'operative', 'medrep'],
-    spine:       ['spine', 'lumbar', 'thoracic', 'cervical', 'disc', 'neuro', 'mri', 'xray', 'ct', 'radiology'],
-    shoulder:    ['shoulder', 'rotator', 'bicep', 'surgery', 'radiology', 'mri', 'xray', 'orthopedic'],
-    knee:        ['knee', 'leg', 'meniscus', 'acl', 'pcl', 'surgery', 'radiology', 'orthopedic'],
+    hip:         ['orthopedic', 'hip', 'thigh', 'operative'],
+    spine:       ['spine', 'lumbar', 'thoracic', 'cervical', 'disc', 'neuro'],
+    shoulder:    ['shoulder', 'rotator', 'bicep', 'orthopedic'],
+    knee:        ['knee', 'leg', 'meniscus', 'acl', 'pcl', 'orthopedic'],
     mental:      ['psychology', 'psychiatry', 'ptsd', 'behavioral', 'counseling', 'mental health'],
     hypertension:['cardiology', 'cardiac', 'heart', 'bp', 'blood pressure', 'primary care'],
-    diabetes:    ['endocrine', 'diabetes', 'glucose', 'hba1c', 'primary care', 'lab'],
+    diabetes:    ['endocrine', 'diabetes', 'glucose', 'hba1c', 'primary care'],
     hearing:     ['audiology', 'ent', 'hearing', 'audiogram'],
-    respiratory: ['pulmonary', 'lung', 'copd', 'asthma', 'radiology', 'ct', 'xray'],
-    general:     null  // null = all pages high priority
+    respiratory: ['pulmonary', 'lung', 'copd', 'asthma'],
+    headache:    ['neurology', 'neurological', 'head', 'headache', 'migraine', 'brain'],
+    general:     null  // null = treat every tag-eligible page as high priority
   };
+
+  // Strict-mode whitelist: in Strict mode, a page is only eligible to be
+  // tagged if its category text contains one of these substrings (i.e. it
+  // is an imaging study, procedure, medication record, or surgery note).
+  // This is the key precision filter — pages with keyword hits but no
+  // medical-relevance category get skipped entirely.
+  const MEDICAL_RELEVANT = [
+    // imaging
+    'radiology', 'radiograph', 'mri', 'magnetic resonance', 'x-ray', 'xray', 'x ray',
+    'ct', 'ct-scan', 'ctscan', 'ct scan', 'cat scan', 'ultrasound', 'sonogram',
+    'mammogram', 'mammography', 'pet scan', 'pet/ct', 'nuclear medicine',
+    'imaging', 'scan', 'fluoroscopy', 'angiogram', 'myelogram',
+    // procedures
+    'biopsy', 'endoscopy', 'colonoscopy', 'bronchoscopy', 'arthroscopy',
+    'laparoscopy', 'ekg', 'ecg', 'echo', 'echocardiogram', 'holter',
+    'stress test', 'cardiac cath', 'procedure', 'op note', 'op report',
+    // medications
+    'medication', 'med list', 'meds', 'prescription', 'pharmacy', 'rx',
+    'formulary',
+    // surgery
+    'surgery', 'surgical', 'post-op', 'postop', 'pre-op', 'preop',
+    'operation', 'operative',
+    // pathology (procedural)
+    'pathology', 'histology', 'specimen'
+  ];
 
   const SPEED_MULTIPLIERS = { fast: 0.6, normal: 1, slow: 2 };
 
@@ -426,12 +417,47 @@
   // ──────────────────────────────────────────────────────────────────
   // 9. RELEVANCE LOGIC
   // ──────────────────────────────────────────────────────────────────
-  function isHighPriority(category, dbq) {
-    const cats = DBQ_CATEGORIES[dbq];
-    if (cats === null || cats === undefined) return true; // general → all yellow
+  // Resolve the active DBQ category list. For built-in DBQs, look up
+  // DBQ_CATEGORIES; for "custom", use the user-supplied keywords from
+  // the popup (passed through opts.customCategories).
+  function getDbqCategories(dbq, customCategories) {
+    if (dbq === 'general') return null;
+    if (dbq === 'custom') {
+      if (!customCategories) return [];
+      if (Array.isArray(customCategories)) return customCategories.map(s => String(s).toLowerCase().trim()).filter(Boolean);
+      return String(customCategories).split(',').map(s => s.toLowerCase().trim()).filter(Boolean);
+    }
+    return DBQ_CATEGORIES[dbq] || [];
+  }
+
+  function isMedicalRelevant(category) {
     if (!category) return false;
     const c = category.toLowerCase();
-    return cats.some(k => c.includes(k));
+    return MEDICAL_RELEVANT.some(k => c.includes(k));
+  }
+
+  function isHighPriority(category, dbq, customCategories) {
+    const cats = getDbqCategories(dbq, customCategories);
+    if (cats === null) return true; // general → all yellow
+    if (!category) return false;
+    const c = category.toLowerCase();
+    return cats.some(k => k && c.includes(k));
+  }
+
+  // Three-bucket page classifier:
+  //   - 'yellow' : tag, high priority (matches DBQ-specific category)
+  //   - 'orange' : tag, review needed (medical-relevant but not DBQ-specific)
+  //   - 'skip'   : do NOT tag (no medical relevance)
+  // Behaviour depends on tagMode:
+  //   - 'strict' (default): yellow if DBQ match, orange if medical-relevant,
+  //                         skip otherwise
+  //   - 'relaxed'         : yellow if DBQ match, orange otherwise (PRD v4)
+  function classifyPage(category, dbq, tagMode, customCategories) {
+    const dbqMatch = isHighPriority(category, dbq, customCategories);
+    if (dbqMatch) return 'yellow';
+    if (tagMode === 'relaxed') return 'orange';
+    if (isMedicalRelevant(category)) return 'orange';
+    return 'skip';
   }
 
   // ──────────────────────────────────────────────────────────────────
@@ -482,6 +508,8 @@
     const minHits = Math.max(1, parseInt(opts.minHits, 10) || 1);
     const skipExisting = !!opts.skipExisting;
     const confirmed = !!opts.confirmed;
+    const tagMode = opts.tagMode || 'strict';        // 'strict' (default) or 'relaxed'
+    const customCategories = opts.customCategories;  // string or array, used when dbq === 'custom'
 
     const startTime = Date.now();
     let apiWarning = null;
@@ -550,7 +578,20 @@
       }
 
       // FILTER by min hits
-      let targets = [...pagesByNum.values()].filter(p => p.hitCount >= minHits);
+      let candidates = [...pagesByNum.values()].filter(p => p.hitCount >= minHits);
+
+      // CLASSIFY each candidate. Pages that classify as 'skip' are dropped
+      // entirely (they have keyword hits but no medical-relevance category).
+      // The remaining ones carry a 'classification' field: 'yellow' | 'orange'.
+      const skippedNonMedical = [];
+      let targets = [];
+      for (const p of candidates) {
+        const cls = classifyPage(p.category || '', dbq, tagMode, customCategories);
+        if (cls === 'skip') { skippedNonMedical.push(p.pageNum); continue; }
+        p.classification = cls;
+        targets.push(p);
+      }
+
       // SORT ascending
       targets.sort((a, b) => a.pageNum - b.pageNum);
 
@@ -567,9 +608,17 @@
       if (targets.length === 0) {
         await setState({
           mrvState: 'done',
-          mrvResults: { placed: 0, highPri: 0, lowPri: 0, skipped: skippedExisting.length, failed: 0, zeroPages: true },
+          mrvResults: {
+            placed: 0, highPri: 0, lowPri: 0,
+            skipped: skippedExisting.length,
+            skippedNonMedical: skippedNonMedical.length,
+            failed: 0,
+            totalCandidates: candidates.length,
+            zeroPages: true
+          },
           mrvFailedPages: [],
           mrvSkippedPages: skippedExisting,
+          mrvSkippedNonMedical: skippedNonMedical,
           mrvApiWarning: apiWarning,
           mrvMultiDcnWarning: multiDcnWarning,
           mrvElapsedMs: Date.now() - startTime,
@@ -596,9 +645,11 @@
         mrvKeywords: report.keywords,
         mrvDbq: dbq,
         mrvSpeed: speed,
+        mrvTagMode: tagMode,
         mrvShouldStop: false,
         mrvFailedPages: [],
         mrvSkippedPages: skippedExisting,
+        mrvSkippedNonMedical: skippedNonMedical,
         mrvApiWarning: apiWarning,
         mrvMultiDcnWarning: multiDcnWarning,
         mrvPatient: report.patient,
@@ -629,7 +680,7 @@
         if (ok === 'failed') failed.push(target.pageNum);
         else if (ok === 'placed') {
           placed++;
-          if (isHighPriority(target.category, dbq)) highPri++;
+          if (target.classification === 'yellow') highPri++;
           else lowPri++;
         }
 
@@ -648,11 +699,14 @@
         mrvResults: {
           placed, highPri, lowPri,
           skipped: skippedExisting.length,
+          skippedNonMedical: skippedNonMedical.length,
           failed: failed.length,
-          totalAttempted: targets.length
+          totalAttempted: targets.length,
+          totalCandidates: candidates.length
         },
         mrvFailedPages: failed,
         mrvSkippedPages: skippedExisting,
+        mrvSkippedNonMedical: skippedNonMedical,
         mrvElapsedMs: elapsedMs,
         mrvApiWarning: apiWarning,
         mrvMultiDcnWarning: multiDcnWarning,
@@ -681,10 +735,10 @@
     if (!scrolled) return 'failed';
     await sleep(t.scrollWait);
 
-    // 2. Find note button & swatch
+    // 2. Find note button & swatch — use the classification decided in run().
     const button = findCreateNoteButton();
     if (!button) return 'failed';
-    const highPri = isHighPriority(target.category, dbq);
+    const highPri = target.classification === 'yellow';
     let swatch = findSwatch(button, highPri ? SWATCH_HEX.yellow : SWATCH_HEX.orange);
     if (!swatch && !highPri) swatch = findSwatch(button, SWATCH_HEX.yellow); // fallback per PRD
     if (!swatch) return 'failed';

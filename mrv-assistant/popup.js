@@ -149,10 +149,13 @@ function renderReady(scan, state) {
   if (scan.patient) parts.push(scan.patient);
   parts.push(`${scan.pageCount.toLocaleString()} pages`);
   let line2 = '';
+  const hits = (typeof scan.hitCount === 'number') ? scan.hitCount : 0;
+  if (hits > 0) line2 = `${hits.toLocaleString()} hits found`;
   if (scan.keywords && scan.keywords.length) {
-    line2 = `${scan.keywords.length} keyword${scan.keywords.length === 1 ? '' : 's'} active: ${scan.keywords.slice(0, 3).join(', ')}${scan.keywords.length > 3 ? '…' : ''}`;
+    const kw = scan.keywords.slice(0, 3).join(', ') + (scan.keywords.length > 3 ? '…' : '');
+    line2 += (line2 ? ' · ' : '') + `${kw} active`;
   }
-  setSubtitle(parts.join(' · ') + (line2 ? ` · ${line2}` : ''));
+  setSubtitle(parts.join(' · ') + (line2 ? '\n' + line2 : ''));
 
   if (scan.dcnCount && scan.dcnCount > 1) {
     const b = $('banner-multi-dcn');
@@ -183,6 +186,13 @@ function renderRunning(state) {
     $('run-eta').textContent = fmtEta(remaining, perItem);
   } else {
     $('run-eta').textContent = '';
+  }
+  const apiBanner = $('banner-api-warning-running');
+  if (state.mrvApiWarning) {
+    apiBanner.textContent = state.mrvApiWarning;
+    apiBanner.classList.remove('hidden');
+  } else {
+    apiBanner.classList.add('hidden');
   }
   setSubtitle(state.mrvPatient || '');
   show('running');

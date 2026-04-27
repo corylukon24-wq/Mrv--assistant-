@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MRV Assistant</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --green: #16a34a;
+      --orange: #f59e0b;
+      --red: #dc2626;
+      --bar: #2563eb;
+      --bar-bg: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      color: var(--fg);
+      background: var(--bg);
+    }
+    header {
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .title {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    .subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-line;
+    }
+    .body {
+      padding: 12px 14px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .row label {
+      color: var(--fg);
+      font-size: 12px;
+    }
+    select {
+      font-size: 12px;
+      padding: 4px 6px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: white;
+      min-width: 140px;
+    }
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: white;
+      background: var(--accent);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-hover); }
+    button.secondary {
+      background: white;
+      color: var(--fg);
+      border: 1px solid var(--line);
+    }
+    button.danger { background: var(--red); }
+    button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 10px;
+      background: var(--bar-bg);
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--bar);
+      width: 0%;
+      transition: width 200ms ease;
+    }
+    .status-line {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .results {
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .results .stat {
+      display: flex;
+      justify-content: space-between;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .pill.green { background: #dcfce7; color: var(--green); }
+    .pill.orange { background: #fef3c7; color: var(--orange); }
+    .pill.red { background: #fee2e2; color: var(--red); }
+    .banner {
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 11.5px;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+    .banner.info    { background: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; }
+    .banner.warn    { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .banner.error   { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .empty-state {
+      text-align: center;
+      padding: 14px 6px;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .footnote {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .button-row {
+      display: flex;
+      gap: 8px;
+    }
+    .button-row > button { flex: 1; }
+    .hidden { display: none !important; }
+    .failed-list {
+      font-size: 11px;
+      color: var(--red);
+      margin-top: 4px;
+      max-height: 60px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="title">MRV Assistant</div>
+  <div class="subtitle" id="subtitle">Loading…</div>
+</header>
+
+<div class="body">
+
+  <!-- STATE 2: NO DOCUMENT -->
+  <div id="state-no-document" class="hidden empty-state">
+    Open a patient C-file in Maximus first, then click the MRV Assistant icon again.
+  </div>
+
+  <!-- STATE 3: NO KEYWORDS -->
+  <div id="state-no-keywords" class="hidden empty-state">
+    No keywords found.<br>
+    Search your terms in Maximus first<br>
+    (type each keyword and press Enter), then come back.
+  </div>
+
+  <!-- STATE 1: READY -->
+  <div id="state-ready" class="hidden">
+    <div id="banner-multi-dcn" class="banner warn hidden"></div>
+    <div class="row">
+      <label for="dbq">DBQ Type</label>
+      <select id="dbq">
+        <option value="hip">Hip and Thigh</option>
+        <option value="spine">Spine / Back</option>
+        <option value="shoulder">Shoulder / Arm</option>
+        <option value="knee">Knee / Leg</option>
+        <option value="headache">Headache</option>
+        <option value="mental">Mental Health</option>
+        <option value="hypertension">Hypertension</option>
+        <option value="diabetes">Diabetes</option>
+        <option value="hearing">Hearing Loss</option>
+        <option value="respiratory">Respiratory</option>
+        <option value="general">General</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </div>
+    <div class="row" id="customRow" style="display:none">
+      <label for="customCategories" style="align-self:flex-start;padding-top:4px">Custom keywords</label>
+      <textarea id="customCategories" rows="2" placeholder="comma-separated, e.g.&#10;head, mri, neuro, migraine"
+        style="width:170px;font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-family:inherit;resize:vertical"></textarea>
+    </div>
+    <div class="row">
+      <label for="minHits">Min hits per page</label>
+      <select id="minHits">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="speed">Speed</label>
+      <select id="speed">
+        <option value="slow">Slow</option>
+        <option value="normal" selected>Normal</option>
+        <option value="fast">Fast</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="tagMode">Tag mode</label>
+      <select id="tagMode">
+        <option value="strict" selected>Strict (recommended)</option>
+        <option value="relaxed">Relaxed (every hit)</option>
+      </select>
+    </div>
+    <div class="check-row">
+      <input type="checkbox" id="skipExisting" checked>
+      <label for="skipExisting">Skip pages with notes</label>
+    </div>
+    <div class="footnote" style="text-align:left;margin-bottom:8px;line-height:1.4">
+      <strong>Strict</strong>: only tags imaging studies, procedures,
+      medications, and surgery notes that match your keywords.
+      <strong>Relaxed</strong>: tags every page with a hit.
+    </div>
+    <button id="runBtn">Run Highlight Extraction</button>
+  </div>
+
+  <!-- STATE 4: CONFIRMING -->
+  <div id="state-confirming" class="hidden">
+    <div class="banner warn" id="confirm-msg">About to place a lot of notes. Continue?</div>
+    <div class="button-row">
+      <button id="confirmYes">Continue</button>
+      <button id="confirmNo" class="secondary">Cancel</button>
+    </div>
+  </div>
+
+  <!-- STATE 5: RUNNING -->
+  <div id="state-running" class="hidden">
+    <div id="banner-api-warning-running" class="banner warn hidden"></div>
+    <div class="status-line" id="run-status">Placing note…</div>
+    <div class="progress-bar"><div class="progress-fill" id="run-fill"></div></div>
+    <div class="status-line" id="run-eta"></div>
+    <button id="stopBtn" class="danger">Stop</button>
+  </div>
+
+  <!-- STATE 6: DONE -->
+  <div id="state-done" class="hidden">
+    <div class="banner info" id="done-headline">Done!</div>
+    <div id="banner-api-warning" class="banner warn hidden"></div>
+    <div class="results">
+      <div class="stat"><span><span class="pill green">★</span> High priority</span><span id="stat-high">0</span></div>
+      <div class="stat"><span><span class="pill orange">⚠</span> Review</span><span id="stat-low">0</span></div>
+      <div class="stat"><span>Skipped (already noted)</span><span id="stat-skipped">0</span></div>
+      <div class="stat"><span>Skipped (non-medical)</span><span id="stat-non-medical">0</span></div>
+      <div class="stat"><span>Failed</span><span id="stat-failed">0</span></div>
+      <div class="stat"><span>Time elapsed</span><span id="stat-elapsed">—</span></div>
+    </div>
+    <div class="failed-list" id="failed-list"></div>
+    <div class="footnote">Open the Sticky Notes panel in Maximus to jump to flagged pages.</div>
+    <div style="height: 10px"></div>
+    <button id="againBtn" class="secondary">↺ Run again / New patient</button>
+  </div>
+
+  <!-- STATE 7: RESUMING -->
+  <div id="state-resuming" class="hidden">
+    <div class="banner warn">Previous run was interrupted.</div>
+    <div class="button-row">
+      <button id="resumeBtn">Resume</button>
+      <button id="freshBtn" class="secondary">Start fresh</button>
+    </div>
+  </div>
+
+  <!-- STATE: ERROR -->
+  <div id="state-error" class="hidden">
+    <div class="banner error" id="err-msg">Something went wrong.</div>
+    <button id="resetBtn" class="secondary">Reset</button>
+  </div>
+
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

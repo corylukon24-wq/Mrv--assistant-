@@ -356,22 +356,25 @@
     const newY = -(page.translateY) + (svgHeight / 2);
     container.setAttribute('transform', `translate(0, ${newY})`);
 
-    // Poll for the target page group to render in the DOM (max 20 attempts × 100ms)
+    // Poll for the target page group to render in the DOM (max 20 attempts × 100ms).
+    // PRD says "confirm the target page g#P_{DCN}_{pageNum} has rendered into viewport".
+    // Maximus only inserts pages into the DOM that are near the visible scroll
+    // position (lazy load), so element existence is the rendering signal.
     const maxAttempts = 20;
     const targetSel = `g[id="${page.id}"]`;
     for (let i = 0; i < maxAttempts; i++) {
       const el = document.querySelector(targetSel);
-      if (el && isInViewport(el, svg)) return true;
+      if (el) return true;
       await sleep(100);
     }
     return false;
   }
 
+  // Retained for diagnostic use; not currently called.
   function isInViewport(el, svg) {
     try {
       const r = el.getBoundingClientRect();
       const sr = svg.getBoundingClientRect();
-      // Consider in-viewport if any vertical overlap
       return r.bottom > sr.top && r.top < sr.bottom;
     } catch (_) { return false; }
   }
@@ -696,8 +699,18 @@
     const after = document.querySelectorAll('g.stickynote').length;
     if (after <= before) return 'failed';
 
-    // 4. Find textarea inside the new note
-    const textarea = note.querySelector('textarea') || document.querySelector('g.stickynote textarea');
+    // 4. Find textarea inside the new note. Maximus may insert the textarea
+    // a tick after the g.stickynote — poll briefly inside this specific note
+    // (don't fall back to a document-wide selector which could hit the wrong
+    // note if multiple are open).
+    let textarea = note.querySelector('textarea');
+    if (!textarea) {
+      for (let i = 0; i < 10; i++) {
+        await sleep(50);
+        textarea = note.querySelector('textarea');
+        if (textarea) break;
+      }
+    }
     if (!textarea) return 'failed';
 
     const content = formatNote(highPri, target.keywords, target.pageNum);
